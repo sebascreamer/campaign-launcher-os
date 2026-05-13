@@ -10,10 +10,13 @@ const COUNTRIES = [
   ['BR','🇧🇷 Brasil'],['VE','🇻🇪 Venezuela'],['BO','🇧🇴 Bolivia'],['PY','🇵🇾 Paraguay'],
   ['UY','🇺🇾 Uruguay'],['GT','🇬🇹 Guatemala'],['HN','🇭🇳 Honduras'],['SV','🇸🇻 El Salvador'],
   ['NI','🇳🇮 Nicaragua'],['CR','🇨🇷 Costa Rica'],['PA','🇵🇦 Panamá'],['DO','🇩🇴 Rep. Dominicana'],
-  ['PR','🇵🇷 Puerto Rico'],['CU','🇨🇺 Cuba'],['GB','🇬🇧 Reino Unido'],['DE','🇩🇪 Alemania'],
-  ['FR','🇫🇷 Francia'],['IT','🇮🇹 Italia'],['CA','🇨🇦 Canadá'],['AU','🇦🇺 Australia'],
-  ['JP','🇯🇵 Japón'],['IN','🇮🇳 India'],['ZA','🇿🇦 Sudáfrica'],['NG','🇳🇬 Nigeria'],
+  ['PR','🇵🇷 Puerto Rico'],['GB','🇬🇧 Reino Unido'],['DE','🇩🇪 Alemania'],['FR','🇫🇷 Francia'],
+  ['IT','🇮🇹 Italia'],['CA','🇨🇦 Canadá'],['AU','🇦🇺 Australia'],['JP','🇯🇵 Japón'],
+  ['IN','🇮🇳 India'],['ZA','🇿🇦 Sudáfrica'],['NG','🇳🇬 Nigeria'],['PT','🇵🇹 Portugal'],
 ]
+
+const CTA_SALES = [['SHOP_NOW','Shop Now'],['LEARN_MORE','Learn More'],['SIGN_UP','Sign Up'],['ORDER_NOW','Order Now'],['GET_OFFER','Get Offer']]
+const CTA_WA = [['WHATSAPP_MESSAGE','💬 WhatsApp'],['CONTACT_US','Contáctanos'],['LEARN_MORE','Más información']]
 
 function sanitizeName(str: string) {
   return str.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'')
@@ -28,7 +31,7 @@ function generateNames(product: string, country: string, videos: VideoFile[], ca
   const prefix = campaignType === 'WHATSAPP' ? 'ABO_WA' : 'ABO_TEST'
   const campaign = `${prefix}_${prod}_${country}_${date}`
   const adsets = videos.map((v,i) => ({
-    adset: `ADSET_${String(i+1).padStart(2,'0')}_${sanitizeName(v.cleanName)}`,
+    adset: `ADSET_${String(i+1).padStart(2,'00')}_${sanitizeName(v.cleanName)}`,
     ad: `AD_${String(i+1).padStart(2,'00')}_${sanitizeName(v.cleanName)}`,
   }))
   return { campaign, adsets }
@@ -42,6 +45,8 @@ export default function LaunchPage() {
   const [videos, setVideos] = useState<VideoFile[]>([])
   const [showPreview, setShowPreview] = useState(false)
   const [launching, setLaunching] = useState(false)
+  const [savingAccount, setSavingAccount] = useState(false)
+  const [accountSaved, setAccountSaved] = useState(false)
   const [logs, setLogs] = useState<Array<{level:string;msg:string;time:string}>>([])
   const [launchDone, setLaunchDone] = useState(false)
   const [error, setError] = useState('')
@@ -60,27 +65,39 @@ export default function LaunchPage() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
     const [{ data: accs }, { data: pxls }, { data: pgs }] = await Promise.all([
-      supabase.from('ad_accounts').select('*').eq('user_id', user.id),
+      supabase.from('ad_accounts').select('*').eq('user_id', user.id).order('account_name'),
       supabase.from('pixels').select('*').eq('user_id', user.id).order('pixel_name'),
       supabase.from('facebook_pages').select('*').eq('user_id', user.id).order('page_name'),
     ])
     if (pxls?.length) setPixels(pxls)
     if (pgs?.length) setPages(pgs)
-    const selAcc = accs?.find((a:any) => a.is_selected) || accs?.[0]
-    const selPx = pxls?.find((p:any) => p.is_selected) || pxls?.[0]
-    const selPg = pgs?.find((p:any) => p.is_selected) || pgs?.[0]
-    if (selAcc) setForm(f => ({ ...f, adAccountId: selAcc.account_id }))
+    const selAcc = (accs||[]).find((a:any) => a.is_selected) || (accs||[])[0]
+    const selPx = (pxls||[]).find((p:any) => p.is_selected) || (pxls||[])[0]
+    const selPg = (pgs||[]).find((p:any) => p.is_selected) || (pgs||[])[0]
+    if (selAcc) { setForm(f => ({ ...f, adAccountId: selAcc.account_id })); setAccountSaved(true) }
     if (selPx) setForm(f => ({ ...f, pixelId: selPx.pixel_id }))
     if (selPg) setForm(f => ({ ...f, pageId: selPg.page_id }))
+  }
+
+  async function saveAdAccount() {
+    const id = form.adAccountId.replace('act_','').trim()
+    if (!id || id.length < 5) return
+    setSavingAccount(true)
+    try {
+      const res = await fetch(`/api/meta/verify-account?account_id=${id}`)
+      const data = await res.json()
+      if (res.ok) { setAccountSaved(true) }
+    } catch(e) {}
+    setSavingAccount(false)
   }
 
   function set(key: string, value: string) {
     setForm(f => {
       const next = { ...f, [key]: value }
       if (key === 'campaignType') {
-        if (value === 'WHATSAPP') next.ctaType = 'WHATSAPP_MESSAGE'
-        else next.ctaType = 'SHOP_NOW'
+        next.ctaType = value === 'WHATSAPP' ? 'WHATSAPP_MESSAGE' : 'SHOP_NOW'
       }
+      if (key === 'adAccountId') setAccountSaved(false)
       return next
     })
     setShowPreview(false)
@@ -106,7 +123,7 @@ export default function LaunchPage() {
     if (!form.pixelId.trim() && form.campaignType === 'SALES') return 'Selecciona un Pixel.'
     if (!form.pageId.trim()) return 'Selecciona una Facebook Page.'
     if (form.campaignType === 'WHATSAPP') {
-      if (!form.whatsappNumber.trim()) return 'Ingresa el número de WhatsApp (con código de país, ej: 593912345678).'
+      if (!form.whatsappNumber.trim()) return 'Ingresa el número de WhatsApp con código de país.'
     } else {
       if (!form.destinationUrl.trim()) return 'Falta la URL de destino.'
       try { new URL(form.destinationUrl) } catch { return 'La URL no es válida. Debe empezar con https://' }
@@ -123,6 +140,7 @@ export default function LaunchPage() {
   const names = generateNames(form.productName, form.country, videos, form.campaignType)
   const totalBudget = (Number(form.dailyBudget) * videos.length).toFixed(2)
   const finalUrl = destUrl ? `${destUrl}${destUrl.includes('?')?'&':'?'}utm_source=meta&utm_medium=paid&utm_campaign=${names.campaign.toLowerCase()}` : ''
+  const ctaList = isWA ? CTA_WA : CTA_SALES
 
   async function handleLaunch() {
     const err = validate()
@@ -143,12 +161,12 @@ export default function LaunchPage() {
       primaryText: form.primaryText, headline: form.headline, description: form.description,
       ctaType: form.ctaType, ageMin: Number(form.ageMin), ageMax: Number(form.ageMax),
       gender: form.gender, adAccountId: form.adAccountId.replace('act_',''),
-      pixelId: form.pixelId, pageId: form.pageId,
+      pixelId: form.pixelId || '0', pageId: form.pageId,
     }))
     const res = await fetch('/api/launch/abo', { method: 'POST', body: data })
     const result = await res.json()
     if (!res.ok) { addLog('ERROR', result.error || 'Error'); setError(result.error || 'Error.'); setLaunching(false); return }
-    result.results?.forEach((r: {adSetName:string}) => addLog('SUCCESS', `✓ ${r.adSetName}`))
+    result.results?.forEach((r: any) => addLog('SUCCESS', `✓ ${r.adSetName}`))
     addLog('SUCCESS', `🎉 "${result.campaignName}" creada. ${result.adsCreated} ad sets en PAUSED.`)
     setLaunchDone(true); setLaunching(false)
   }
@@ -205,7 +223,7 @@ export default function LaunchPage() {
         {error && (
           <div style={{background:'rgba(239,68,68,0.1)',border:'1px solid rgba(239,68,68,0.3)',borderRadius:'8px',padding:'12px 16px',marginBottom:'16px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
             <span style={{color:'#f87171',fontSize:'12px'}}>{error}</span>
-            <button onClick={() => setError('')} style={{background:'none',border:'none',color:'#f87171',cursor:'pointer',fontSize:'18px'}}>×</button>
+            <button onClick={() => setError('')} style={{background:'none',border:'none',color:'#f87171',cursor:'pointer',fontSize:'18px',fontFamily:'inherit'}}>×</button>
           </div>
         )}
 
@@ -214,8 +232,8 @@ export default function LaunchPage() {
           <div style={title}>● TIPO DE CAMPAÑA</div>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'12px'}}>
             {[
-              { val:'SALES', label:'🛒 Campaña de Ventas', desc:'Optimizada para compras con pixel de conversión' },
-              { val:'WHATSAPP', label:'💬 Campaña de WhatsApp', desc:'Click-to-WhatsApp, ideal para cerrar ventas por chat' },
+              {val:'SALES', label:'🛒 Campaña de Ventas', desc:'Optimizada para compras con pixel'},
+              {val:'WHATSAPP', label:'💬 Campaña de WhatsApp', desc:'Click-to-WhatsApp, cierra ventas por chat'},
             ].map(opt => (
               <button key={opt.val} onClick={() => set('campaignType', opt.val)}
                 style={{padding:'14px 16px',background:form.campaignType===opt.val?'rgba(184,255,0,0.08)':'#111',border:form.campaignType===opt.val?'1px solid rgba(184,255,0,0.5)':'1px solid #222',borderRadius:'8px',cursor:'pointer',textAlign:'left',fontFamily:'inherit'}}>
@@ -232,8 +250,17 @@ export default function LaunchPage() {
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'12px'}}>
             <div>
               <label style={lbl}>Ad Account ID *</label>
-              <input value={form.adAccountId} onChange={e => set('adAccountId', e.target.value.replace('act_','').trim())} style={inp} placeholder="1690723562370291" />
-              <div style={{fontSize:'10px',color:'#333',marginTop:'4px'}}>Solo el número, sin "act_"</div>
+              <div style={{display:'flex',gap:'6px'}}>
+                <input value={form.adAccountId}
+                  onChange={e => set('adAccountId', e.target.value.replace('act_','').trim())}
+                  onBlur={saveAdAccount}
+                  style={{...inp,flex:1,border:accountSaved?'1px solid rgba(184,255,0,0.4)':'1px solid #222'}}
+                  placeholder="1690723562370291" />
+                {accountSaved && <span style={{display:'flex',alignItems:'center',color:'#B8FF00',fontSize:'16px',flexShrink:0}}>✓</span>}
+              </div>
+              <div style={{fontSize:'10px',color:accountSaved?'#B8FF00':'#333',marginTop:'4px'}}>
+                {accountSaved ? '✓ Guardado — cargará automáticamente al iniciar sesión' : 'Se guarda automáticamente al salir del campo'}
+              </div>
             </div>
             <div>
               <label style={lbl}>{isWA ? 'Pixel (opcional)' : 'Pixel *'}</label>
@@ -267,9 +294,8 @@ export default function LaunchPage() {
           {isWA ? (
             <div style={{marginBottom:'12px'}}>
               <label style={lbl}>Número de WhatsApp * (con código de país)</label>
-              <input value={form.whatsappNumber} onChange={e => set('whatsappNumber', e.target.value.replace(/[^0-9]/g,''))} style={inp} placeholder="593912345678 (Ecuador: 593, México: 52)" />
-              <div style={{fontSize:'10px',color:'#555',marginTop:'4px'}}>El cliente hace click en el anuncio y abre WhatsApp directo. No incluir el "+" ni espacios.</div>
-              {form.whatsappNumber && <div style={{fontSize:'10px',color:'#B8FF00',marginTop:'4px'}}>URL: https://wa.me/{form.whatsappNumber}</div>}
+              <input value={form.whatsappNumber} onChange={e => set('whatsappNumber', e.target.value.replace(/[^0-9]/g,''))} style={inp} placeholder="593912345678 (Ecuador: 593 · México: 52 · Colombia: 57)" />
+              {form.whatsappNumber && <div style={{fontSize:'10px',color:'#B8FF00',marginTop:'4px'}}>→ https://wa.me/{form.whatsappNumber}</div>}
             </div>
           ) : (
             <div style={{marginBottom:'12px'}}>
@@ -279,24 +305,26 @@ export default function LaunchPage() {
           )}
 
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'12px'}}>
-            <div><label style={lbl}>Presupuesto/día por adset ($)</label><input value={form.dailyBudget} onChange={e => set('dailyBudget', e.target.value)} style={inp} type="number" min="1" /></div>
+            <div>
+              <label style={lbl}>Presupuesto/día por adset ($)</label>
+              <input value={form.dailyBudget} onChange={e => set('dailyBudget', e.target.value)} style={inp} type="number" min="1" />
+            </div>
             {!isWA && (
-              <div><label style={lbl}>Evento de conversión</label>
+              <div>
+                <label style={lbl}>Evento de conversión</label>
                 <select value={form.conversionEvent} onChange={e => set('conversionEvent', e.target.value)} style={inp}>
-                  {[['PURCHASE','Purchase'],['INITIATE_CHECKOUT','Initiate Checkout'],['LEAD','Lead'],['COMPLETE_REGISTRATION','Complete Registration'],['ADD_TO_CART','Add to Cart']].map(([v,l]) => <option key={v} value={v}>{l}</option>)}
+                  <option value="PURCHASE">Purchase</option>
+                  <option value="INITIATE_CHECKOUT">Initiate Checkout</option>
+                  <option value="LEAD">Lead</option>
+                  <option value="COMPLETE_REGISTRATION">Complete Registration</option>
+                  <option value="ADD_TO_CART">Add to Cart</option>
                 </select>
               </div>
             )}
-            <div><label style={lbl}>Call to Action</label>
+            <div>
+              <label style={lbl}>Call to Action</label>
               <select value={form.ctaType} onChange={e => set('ctaType', e.target.value)} style={inp}>
-                {isWA ? [
-                  ['WHATSAPP_MESSAGE','WhatsApp'],
-                  ['CONTACT_US','Contáctanos'],
-                  ['LEARN_MORE','Más información'],
-                ] : [
-                  ['SHOP_NOW','Shop Now'],['LEARN_MORE','Learn More'],['SIGN_UP','Sign Up'],['ORDER_NOW','Order Now'],['GET_OFFER','Get Offer'],
-                ].map(([v,l]) => <option key={v} value={v}>{l}</option>)}
-                {isWA && [['WHATSAPP_MESSAGE','WhatsApp'],['CONTACT_US','Contáctanos'],['LEARN_MORE','Más información']].map(([v,l]) => null)}
+                {ctaList.map(([v,l]) => <option key={v} value={v}>{l}</option>)}
               </select>
             </div>
           </div>
@@ -305,7 +333,11 @@ export default function LaunchPage() {
         {/* Copy */}
         <div style={card}>
           <div style={title}>● COPY DEL ANUNCIO</div>
-          <div style={{marginBottom:'12px'}}><label style={lbl}>Texto principal *</label><textarea value={form.primaryText} onChange={e => set('primaryText', e.target.value)} style={{...inp,minHeight:'80px',resize:'vertical'}} placeholder={isWA ? '¿Quieres más información? Escríbenos por WhatsApp y te atendemos ahora...' : '¿Cansado del ruido? Descubre EchoFree...'} /></div>
+          <div style={{marginBottom:'12px'}}>
+            <label style={lbl}>Texto principal *</label>
+            <textarea value={form.primaryText} onChange={e => set('primaryText', e.target.value)} style={{...inp,minHeight:'80px',resize:'vertical'}}
+              placeholder={isWA ? '¿Quieres más información? Escríbenos por WhatsApp ahora...' : '¿Cansado del ruido? Descubre EchoFree...'} />
+          </div>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'12px'}}>
             <div><label style={lbl}>Titular *</label><input value={form.headline} onChange={e => set('headline', e.target.value)} style={inp} placeholder={isWA ? 'Escríbenos por WhatsApp' : 'Duerme Sin Interrupciones'} /></div>
             <div><label style={lbl}>Descripción (opcional)</label><input value={form.description} onChange={e => set('description', e.target.value)} style={inp} placeholder={isWA ? 'Respuesta inmediata' : 'Envío gratis hoy'} /></div>
@@ -320,7 +352,9 @@ export default function LaunchPage() {
             <div><label style={lbl}>Edad máxima</label><input value={form.ageMax} onChange={e => set('ageMax', e.target.value)} style={inp} type="number" min="18" max="65" /></div>
             <div><label style={lbl}>Género</label>
               <select value={form.gender} onChange={e => set('gender', e.target.value)} style={inp}>
-                <option value="ALL">Todos</option><option value="MALE">Solo hombres</option><option value="FEMALE">Solo mujeres</option>
+                <option value="ALL">Todos</option>
+                <option value="MALE">Solo hombres</option>
+                <option value="FEMALE">Solo mujeres</option>
               </select>
             </div>
           </div>
@@ -350,11 +384,18 @@ export default function LaunchPage() {
         {/* Preview */}
         {showPreview && videos.length > 0 && form.productName && (
           <div style={{...card,border:'1px solid rgba(184,255,0,0.2)'}}>
-            <div style={title}>● VISTA PREVIA</div>
-            {[['Campaña',names.campaign],['Tipo',isWA?'WhatsApp Click-to-Chat':'Ventas con Pixel'],['Ad sets',String(videos.length)],['Presupuesto total/día',`$${totalBudget} USD`],['Destino',destUrl.slice(0,60)+'...']].map(([k,v]) => (
+            <div style={title}>● VISTA PREVIA — REVISA ANTES DE LANZAR</div>
+            {[
+              ['Campaña', names.campaign],
+              ['Tipo', isWA ? '💬 WhatsApp Click-to-Chat' : '🛒 Ventas con Pixel'],
+              ['Ad sets a crear', String(videos.length)],
+              ['Presupuesto total/día', `$${totalBudget} USD`],
+              ['Estado inicial', 'PAUSED'],
+              ['Destino', destUrl],
+            ].map(([k,v]) => (
               <div key={k} style={{display:'flex',justifyContent:'space-between',padding:'8px 0',borderBottom:'1px solid #111',fontSize:'12px'}}>
-                <span style={{color:'#444'}}>{k}</span>
-                <span style={{color:k==='Campaña'||k==='Presupuesto total/día'?'#B8FF00':'#fff',maxWidth:'60%',textAlign:'right',wordBreak:'break-all'}}>{v}</span>
+                <span style={{color:'#444',flexShrink:0}}>{k}</span>
+                <span style={{color:k==='Campaña'||k==='Presupuesto total/día'?'#B8FF00':k==='Estado inicial'?'#FFB400':'#fff',maxWidth:'65%',textAlign:'right',wordBreak:'break-all'}}>{v}</span>
               </div>
             ))}
             <div style={{marginTop:'12px',display:'flex',flexDirection:'column',gap:'6px'}}>
@@ -370,11 +411,11 @@ export default function LaunchPage() {
           </div>
         )}
 
-        {/* Launch */}
-        <button onClick={!showPreview && !launching ? () => { const e = validate(); if(e){setError(e);return;} setShowPreview(true) } : handleLaunch}
+        <button
+          onClick={!showPreview && !launching ? () => { const e = validate(); if(e){setError(e);return;} setShowPreview(true) } : handleLaunch}
           disabled={launching}
           style={{width:'100%',padding:'16px',background:launching?'#222':'#B8FF00',border:'none',color:launching?'#555':'#000',borderRadius:'8px',fontSize:'13px',fontWeight:'bold',letterSpacing:'2px',cursor:launching?'not-allowed':'pointer',marginBottom:'12px',fontFamily:'inherit'}}>
-          {launching ? '⟳ CREANDO CAMPAÑA EN META...' : showPreview ? `▶ CONFIRMAR Y CREAR CAMPAÑA ${isWA?'WHATSAPP':'DE VENTAS'} EN PAUSED` : '→ VER PREVIEW ANTES DE LANZAR'}
+          {launching ? '⟳ CREANDO CAMPAÑA EN META...' : showPreview ? `▶ CONFIRMAR Y CREAR ${isWA?'CAMPAÑA WHATSAPP':'CAMPAÑA DE VENTAS'} EN PAUSED` : '→ VER PREVIEW ANTES DE LANZAR'}
         </button>
 
         {launching && logs.length > 0 && (
