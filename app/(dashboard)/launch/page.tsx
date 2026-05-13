@@ -418,15 +418,55 @@ export default function LaunchPage() {
           {launching ? '⟳ CREANDO CAMPAÑA EN META...' : showPreview ? `▶ CONFIRMAR Y CREAR ${isWA?'CAMPAÑA WHATSAPP':'CAMPAÑA DE VENTAS'} EN PAUSED` : '→ VER PREVIEW ANTES DE LANZAR'}
         </button>
 
-        {launching && logs.length > 0 && (
+        {launching && (
           <div style={card}>
-            <div style={title}>● PROGRESO</div>
-            <div style={{maxHeight:'200px',overflowY:'auto'}}>
+            <div style={title}>● PROGRESO DEL LANZAMIENTO</div>
+            {/* Progress bar */}
+            <div style={{marginBottom:'16px'}}>
+              <div style={{display:'flex',justifyContent:'space-between',marginBottom:'6px'}}>
+                <span style={{fontSize:'11px',color:'#555'}}>
+                  {logs.length === 0 ? 'Iniciando...' : logs[logs.length-1]?.msg}
+                </span>
+                <span style={{fontSize:'11px',color:'#B8FF00',fontWeight:'bold'}}>
+                  {Math.min(Math.round((logs.length / Math.max(videos.length * 5 + 1, 1)) * 100), 95)}%
+                </span>
+              </div>
+              <div style={{background:'#111',borderRadius:'99px',height:'8px',overflow:'hidden'}}>
+                <div style={{
+                  height:'100%',
+                  background:'linear-gradient(90deg, #B8FF00, #88CC00)',
+                  borderRadius:'99px',
+                  width:`${Math.min(Math.round((logs.length / Math.max(videos.length * 5 + 1, 1)) * 100), 95)}%`,
+                  transition:'width 0.5s ease',
+                }} />
+              </div>
+            </div>
+            {/* Step indicators */}
+            <div style={{display:'flex',gap:'6px',marginBottom:'16px',flexWrap:'wrap'}}>
+              {['Campaña', ...videos.map((_,i) => `Video ${i+1}`)].map((step, i) => {
+                const stepLogs = logs.filter(l => l.msg.includes(step.replace('Video ','')) || (i===0 && l.step?.includes('CAMPAIGN')) || l.msg.includes(`_${i}_`))
+                const done = logs.some(l => l.level==='SUCCESS' && (i===0 ? l.msg.includes('Campaña creada') : l.msg.includes(`VIDEO_${i}`)||l.msg.includes(`AD_${i}`)||l.msg.includes(`${String(i).padStart(2,'0')}`) ))
+                const active = !done && logs.some(l => l.msg.includes(String(i)))
+                return (
+                  <div key={step} style={{
+                    fontSize:'10px',padding:'4px 10px',borderRadius:'99px',
+                    background:done?'rgba(184,255,0,0.15)':active?'rgba(184,255,0,0.05)':'#111',
+                    border:done?'1px solid rgba(184,255,0,0.4)':active?'1px solid rgba(184,255,0,0.2)':'1px solid #222',
+                    color:done?'#B8FF00':active?'#888':'#444',
+                    transition:'all 0.3s'
+                  }}>
+                    {done ? '✓ ' : active ? '⟳ ' : '○ '}{step}
+                  </div>
+                )
+              })}
+            </div>
+            {/* Logs */}
+            <div style={{maxHeight:'150px',overflowY:'auto',borderTop:'1px solid #1a1a1a',paddingTop:'10px'}}>
               {logs.map((l,i) => (
-                <div key={i} style={{display:'flex',gap:'12px',fontSize:'11px',padding:'3px 0',fontFamily:'monospace'}}>
+                <div key={i} style={{display:'flex',gap:'10px',fontSize:'10px',padding:'2px 0',fontFamily:'monospace'}}>
                   <span style={{color:'#333',flexShrink:0}}>{l.time}</span>
-                  <span style={{color:l.level==='SUCCESS'?'#B8FF00':l.level==='ERROR'?'#f87171':'#555',flexShrink:0}}>[{l.level}]</span>
-                  <span style={{color:'#555'}}>{l.msg}</span>
+                  <span style={{color:l.level==='SUCCESS'?'#B8FF00':l.level==='ERROR'?'#f87171':'#444',flexShrink:0,minWidth:'60px'}}>[{l.level}]</span>
+                  <span style={{color:'#444'}}>{l.msg}</span>
                 </div>
               ))}
             </div>
