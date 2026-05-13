@@ -292,18 +292,20 @@ export default function LaunchPage() {
           </div>
 
           {isWA ? (
-            <div style={{marginBottom:'12px'}}>
-              <label style={lbl}>Número de WhatsApp * (con código de país)</label>
-              <input value={form.whatsappNumber} onChange={e => set('whatsappNumber', e.target.value.replace(/[^0-9]/g,''))} style={inp} placeholder="593912345678 (Ecuador: 593 · México: 52 · Colombia: 57)" />
-              {form.whatsappNumber && <div style={{fontSize:'10px',color:'#B8FF00',marginTop:'4px'}}>→ https://wa.me/{form.whatsappNumber}</div>}
-            </div>
-            <div style={{marginBottom:'12px'}}>
-              <label style={lbl}>Mensaje predeterminado del cliente *</label>
-              <input value={form.whatsappMessage} onChange={e => set('whatsappMessage', e.target.value.slice(0,160))} style={{...inp, border: form.whatsappMessage.length > 140 ? '1px solid #FFB400' : '1px solid #222'}}
-                placeholder="Hola, me interesa obtener más información..." maxLength={160} />
-              <div style={{display:'flex',justifyContent:'space-between',marginTop:'4px'}}>
-                <div style={{fontSize:'10px',color:'#555'}}>Texto pre-escrito que el cliente verá al abrir WhatsApp. Puede editarlo antes de enviar.</div>
-                <div style={{fontSize:'10px',color: form.whatsappMessage.length > 140 ? '#FFB400' : '#444',flexShrink:0,marginLeft:'8px'}}>{form.whatsappMessage.length}/160</div>
+            <div>
+              <div style={{marginBottom:'12px'}}>
+                <label style={lbl}>Número de WhatsApp * (con código de país)</label>
+                <input value={form.whatsappNumber} onChange={e => set('whatsappNumber', e.target.value.replace(/[^0-9]/g,''))} style={inp} placeholder="593912345678 (Ecuador: 593 · México: 52 · Colombia: 57)" />
+                {form.whatsappNumber && <div style={{fontSize:'10px',color:'#B8FF00',marginTop:'4px'}}>→ https://wa.me/{form.whatsappNumber}</div>}
+              </div>
+              <div style={{marginBottom:'12px'}}>
+                <label style={lbl}>Mensaje predeterminado del cliente (máx. 160 caracteres)</label>
+                <input value={form.whatsappMessage} onChange={e => set('whatsappMessage', e.target.value.slice(0,160))} style={{...inp, border: form.whatsappMessage.length > 140 ? '1px solid #FFB400' : '1px solid #222'}}
+                  placeholder="Hola, me interesa obtener más información sobre este producto." maxLength={160} />
+                <div style={{display:'flex',justifyContent:'space-between',marginTop:'4px'}}>
+                  <div style={{fontSize:'10px',color:'#555'}}>Este texto aparece pre-escrito cuando el cliente abre WhatsApp al hacer click en el anuncio.</div>
+                  <div style={{fontSize:'10px',color: form.whatsappMessage.length > 140 ? '#FFB400' : '#444',flexShrink:0,marginLeft:'8px',fontWeight:'bold'}}>{form.whatsappMessage.length}/160</div>
+                </div>
               </div>
             </div>
           ) : (
