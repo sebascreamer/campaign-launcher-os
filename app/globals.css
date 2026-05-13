@@ -4,42 +4,69 @@
 
 @layer base {
   * { box-sizing: border-box; }
-  body { font-family: ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, monospace; }
+  body {
+    font-family: ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, monospace;
+    background: #000000;
+    color: #ffffff;
+  }
   input, select, textarea, button { font-family: inherit; }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: #B8FF00 !important; }
+  option { background: #111; }
 }
 
 @layer components {
   .input-field {
-    @apply w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-gray-100
-           placeholder-gray-600 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500
-           transition-colors;
+    @apply w-full rounded-lg px-3 py-2.5 text-sm transition-colors;
+    background: #111111;
+    border: 1px solid #222222;
+    color: #ffffff;
   }
+  .input-field::placeholder { color: #444; }
+  .input-field:focus { border-color: #B8FF00; }
+
   .select-field {
-    @apply w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-gray-100
-           focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 cursor-pointer
-           transition-colors;
+    @apply w-full rounded-lg px-3 py-2.5 text-sm cursor-pointer transition-colors;
+    background: #111111;
+    border: 1px solid #222222;
+    color: #ffffff;
   }
+  .select-field:focus { border-color: #B8FF00; }
+
   .btn-primary {
-    @apply bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-6 rounded-lg text-sm
-           tracking-widest uppercase transition-all disabled:bg-gray-700 disabled:text-gray-500
-           disabled:cursor-not-allowed active:scale-95;
+    @apply font-bold py-3 px-6 rounded-lg text-sm tracking-widest uppercase transition-all active:scale-95;
+    background: #B8FF00;
+    color: #000000;
+    border: none;
   }
+  .btn-primary:hover { background: #CCFF33; }
+  .btn-primary:disabled { background: #222; color: #444; cursor: not-allowed; }
+
   .btn-secondary {
-    @apply border border-gray-700 hover:border-blue-500 hover:text-blue-400 text-gray-400
-           py-2 px-4 rounded-lg text-sm tracking-wide transition-all;
+    @apply py-2 px-4 rounded-lg text-sm tracking-wide transition-all;
+    border: 1px solid #222;
+    color: #555;
+    background: transparent;
   }
+  .btn-secondary:hover { border-color: #B8FF00; color: #B8FF00; }
+
   .card {
-    @apply bg-gray-900 border border-gray-800 rounded-xl p-5;
+    @apply rounded-xl p-5;
+    background: #0A0A0A;
+    border: 1px solid #1a1a1a;
   }
+
   .card-title {
-    @apply text-xs font-bold text-blue-400 tracking-widest uppercase mb-4 flex items-center gap-2;
+    @apply text-xs font-bold tracking-widest uppercase mb-4 flex items-center gap-2;
+    color: #B8FF00;
   }
   .card-title::before {
     content: '';
-    @apply w-1.5 h-1.5 bg-blue-400 rounded-full;
+    @apply w-1.5 h-1.5 rounded-full;
+    background: #B8FF00;
   }
-  .badge-paused  { @apply text-xs px-2 py-0.5 rounded bg-amber-900/30 text-amber-400 border border-amber-700/40; }
-  .badge-success { @apply text-xs px-2 py-0.5 rounded bg-emerald-900/30 text-emerald-400 border border-emerald-700/40; }
-  .badge-failed  { @apply text-xs px-2 py-0.5 rounded bg-red-900/30 text-red-400 border border-red-700/40; }
-  .badge-processing { @apply text-xs px-2 py-0.5 rounded bg-blue-900/30 text-blue-400 border border-blue-700/40; }
+
+  .badge-paused  { @apply text-xs px-2 py-0.5 rounded; background: rgba(255,180,0,0.1); color: #FFB400; border: 1px solid rgba(255,180,0,0.3); }
+  .badge-success { @apply text-xs px-2 py-0.5 rounded; background: rgba(184,255,0,0.1); color: #B8FF00; border: 1px solid rgba(184,255,0,0.3); }
+  .badge-failed  { @apply text-xs px-2 py-0.5 rounded; background: rgba(239,68,68,0.1); color: #f87171; border: 1px solid rgba(239,68,68,0.3); }
+  .badge-processing { @apply text-xs px-2 py-0.5 rounded; background: rgba(184,255,0,0.08); color: #B8FF00; border: 1px solid rgba(184,255,0,0.2); }
 }
