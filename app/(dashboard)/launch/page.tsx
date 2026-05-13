@@ -66,9 +66,9 @@ export default function LaunchPage() {
     setPages((pgs||[]).map(p => ({ id: p.page_id, name: p.page_name, value: p.page_id })))
 
     // Auto-select if only one
-    const selAcc = (accs||[]).find((a: {is_selected?: boolean}) => a.is_selected) || accs?.[0]
-    const selPx = (pxls||[]).find((p: {is_selected?: boolean}) => p.is_selected) || pxls?.[0]
-    const selPg = (pgs||[]).find((p: {is_selected?: boolean}) => p.is_selected) || pgs?.[0]
+    const selAcc = (accs||[]).find(a => a.is_selected) || accs?.[0]
+    const selPx = (pxls||[]).find(p => p.is_selected) || pxls?.[0]
+    const selPg = (pgs||[]).find(p => p.is_selected) || pgs?.[0]
     if (selAcc) setForm(f => ({ ...f, adAccountId: selAcc.account_id }))
     if (selPx) setForm(f => ({ ...f, pixelId: selPx.pixel_id }))
     if (selPg) setForm(f => ({ ...f, pageId: selPg.page_id }))
