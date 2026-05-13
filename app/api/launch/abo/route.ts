@@ -1,4 +1,3 @@
-// app/api/launch/abo/route.ts
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { decryptToken } from '@/lib/crypto'
@@ -8,20 +7,13 @@ import { validateABOForm } from '@/lib/validators'
 
 const META_BASE = 'https://graph.facebook.com/v20.0'
 
-class MetaAPIError extends Error {
-  code: number; fbtraceId: string
-  constructor(message: string, code: number, fbtraceId: string) {
-    super(message); this.code = code; this.fbtraceId = fbtraceId
-  }
-}
-
 async function metaPost(path: string, token: string, body: Record<string, unknown>) {
   const form = new URLSearchParams()
   form.set('access_token', token)
   Object.entries(body).forEach(([k, v]) => form.set(k, typeof v === 'object' ? JSON.stringify(v) : String(v)))
   const res = await fetch(`${META_BASE}${path}`, { method: 'POST', body: form, headers: { 'Content-Type': 'application/x-www-form-urlencoded' } })
   const data = await res.json()
-  if (data.error) throw new MetaAPIError(data.error.message, data.error.code, data.error.fbtrace_id)
+  if (data.error) throw { message: data.error.message, code: data.error.code, fbtrace: data.error.fbtrace_id }
   return data
 }
 
@@ -31,7 +23,7 @@ async function metaGet(path: string, token: string, params: Record<string, strin
   Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v))
   const res = await fetch(url.toString())
   const data = await res.json()
-  if (data.error) throw new MetaAPIError(data.error.message, data.error.code, data.error.fbtrace_id)
+  if (data.error) throw { message: data.error.message, code: data.error.code }
   return data
 }
 
@@ -39,16 +31,17 @@ async function pollVideo(videoId: string, token: string): Promise<string> {
   for (let i = 0; i < 36; i++) {
     const r = await metaGet(`/${videoId}`, token, { fields: 'id,status' })
     if (r.status?.video_status === 'ready') return videoId
-    if (r.status?.video_status === 'error') throw new Error(`Video ${videoId} failed`)
+    if (r.status?.video_status === 'error') throw new Error(`Video ${videoId} falló`)
     await new Promise(r => setTimeout(r, 5000))
   }
-  throw new Error('Video upload timed out')
+  throw new Error('Video tardó demasiado')
 }
 
 function friendlyError(code: number, msg: string): string {
   const map: Record<number, string> = {
     190: '⚠️ Tu token de Meta expiró. Ve a Conectar Meta y reconecta tu cuenta.',
     200: '🔒 Permisos insuficientes. Reconecta tu cuenta de Meta.',
+    100: `❌ Error en parámetro: ${msg}`,
     294: '⏱️ Meta está limitando las solicitudes. Espera 1 minuto e intenta de nuevo.',
     1815086: '💰 El presupuesto es menor al mínimo permitido por Meta.',
   }
@@ -64,8 +57,8 @@ export async function POST(req: NextRequest) {
   const videos = formData.getAll('videos') as File[]
   const fields = JSON.parse(formData.get('fields') as string)
 
-  const validation = validateABOForm(fields, videos)
-  if (!validation.valid) return NextResponse.json({ error: validation.errors.join(' ') }, { status: 400 })
+  if (!fields.productName) return NextResponse.json({ error: 'Falta el nombre del producto.' }, { status: 400 })
+  if (videos.length === 0) return NextResponse.json({ error: 'Sube al menos un video.' }, { status: 400 })
 
   const { data: conn } = await supabase.from('meta_connections').select('encrypted_token')
     .eq('user_id', user.id).eq('is_active', true).maybeSingle()
@@ -76,17 +69,18 @@ export async function POST(req: NextRequest) {
   const campaignName = generateCampaignName(fields.productName, fields.country, launchDate)
   const totalBudget = fields.dailyBudget * videos.length
   const accountId = fields.adAccountId.replace('act_', '')
+  const isWA = fields.campaignType === 'WHATSAPP'
 
   const { data: launch } = await supabase.from('campaign_launches').insert({
     user_id: user.id, product_name: fields.productName, country: fields.country,
     destination_url: fields.destinationUrl, daily_budget_per_adset: fields.dailyBudget,
-    conversion_event: fields.conversionEvent, primary_text: fields.primaryText,
-    headline: fields.headline, description: fields.description || null,
-    cta_type: fields.ctaType, age_min: fields.ageMin, age_max: fields.ageMax,
-    gender: fields.gender, ad_account_id: fields.adAccountId, pixel_id: fields.pixelId,
-    page_id: fields.pageId, ig_account_id: fields.igAccountId || null,
-    campaign_name: campaignName, total_daily_budget: totalBudget,
-    video_count: videos.length, status: 'PROCESSING',
+    conversion_event: isWA ? 'LEAD' : fields.conversionEvent,
+    primary_text: fields.primaryText, headline: fields.headline,
+    description: fields.description || null, cta_type: fields.ctaType,
+    age_min: fields.ageMin, age_max: fields.ageMax, gender: fields.gender,
+    ad_account_id: fields.adAccountId, pixel_id: fields.pixelId || '0',
+    page_id: fields.pageId, campaign_name: campaignName,
+    total_daily_budget: totalBudget, video_count: videos.length, status: 'PROCESSING',
   }).select().single()
 
   if (!launch) return NextResponse.json({ error: 'Error al crear registro' }, { status: 500 })
@@ -97,10 +91,14 @@ export async function POST(req: NextRequest) {
   }
 
   try {
+    // Crear campaña — objetivo diferente para WhatsApp vs Ventas
     await log('INFO', 'CREATE_CAMPAIGN', `Creando campaña: ${campaignName}`)
     const camp = await metaPost(`/act_${accountId}/campaigns`, token, {
-      name: campaignName, objective: 'OUTCOME_SALES', buying_type: 'AUCTION',
-      status: 'PAUSED', special_ad_categories: JSON.stringify([]),
+      name: campaignName,
+      objective: isWA ? 'OUTCOME_ENGAGEMENT' : 'OUTCOME_SALES',
+      buying_type: 'AUCTION',
+      status: 'PAUSED',
+      special_ad_categories: JSON.stringify([]),
     })
     await supabase.from('campaign_launches').update({ meta_campaign_id: camp.id }).eq('id', launchId)
     await log('SUCCESS', 'CREATE_CAMPAIGN', `Campaña creada: ${camp.id}`)
@@ -113,6 +111,7 @@ export async function POST(req: NextRequest) {
       const adName = generateAdName(i, videoName)
       const finalUrl = appendUTMs(fields.destinationUrl, campaignName, adName)
 
+      // Subir video
       await log('INFO', `UPLOAD_VIDEO_${i+1}`, `Subiendo: ${video.name}`)
       const buf = Buffer.from(await video.arrayBuffer())
       const init = await metaPost(`/act_${accountId}/advideos`, token, {
@@ -127,45 +126,63 @@ export async function POST(req: NextRequest) {
       const videoId = await pollVideo(init.video_id, token)
       await log('SUCCESS', `UPLOAD_VIDEO_${i+1}`, `Video listo: ${videoId}`)
 
+      // Crear Ad Set — optimización diferente para WhatsApp
       const genders = fields.gender === 'ALL' ? [1, 2] : fields.gender === 'MALE' ? [1] : [2]
       await log('INFO', `CREATE_ADSET_${i+1}`, `Creando: ${adSetName}`)
-      const adSet = await metaPost(`/act_${accountId}/adsets`, token, {
-        name: adSetName, campaign_id: camp.id,
+
+      const adSetBody: Record<string, unknown> = {
+        name: adSetName,
+        campaign_id: camp.id,
         daily_budget: Math.round(fields.dailyBudget * 100),
-        billing_event: 'IMPRESSIONS', optimization_goal: 'OFFSITE_CONVERSIONS',
-        promoted_object: JSON.stringify({ pixel_id: fields.pixelId, custom_event_type: fields.conversionEvent }),
+        billing_event: 'IMPRESSIONS',
+        optimization_goal: isWA ? 'LINK_CLICKS' : 'OFFSITE_CONVERSIONS',
         targeting: JSON.stringify({
-          geo_locations: { countries: [fields.country] }, age_min: fields.ageMin, age_max: fields.ageMax,
+          geo_locations: { countries: [fields.country] },
+          age_min: fields.ageMin, age_max: fields.ageMax,
           ...(genders.length < 2 ? { genders } : {}),
           publisher_platforms: ['facebook', 'instagram'],
-          facebook_positions: ['feed', 'story', 'reels'], instagram_positions: ['stream', 'story', 'reels'],
+          facebook_positions: ['feed', 'story', 'reels'],
+          instagram_positions: ['stream', 'story', 'reels'],
           device_platforms: ['mobile', 'desktop'],
         }),
-        attribution_spec: JSON.stringify([{ event_type: 'CLICK_THROUGH', window_days: 7 }]),
         status: 'PAUSED',
-      })
+      }
+
+      // Solo agregar pixel para campañas de ventas
+      if (!isWA && fields.pixelId && fields.pixelId !== '0') {
+        adSetBody.promoted_object = JSON.stringify({
+          pixel_id: fields.pixelId,
+          custom_event_type: fields.conversionEvent,
+        })
+        adSetBody.attribution_spec = JSON.stringify([{ event_type: 'CLICK_THROUGH', window_days: 7 }])
+      }
+
+      const adSet = await metaPost(`/act_${accountId}/adsets`, token, adSetBody)
       await log('SUCCESS', `CREATE_ADSET_${i+1}`, `Ad set: ${adSet.id}`)
 
+      // Crear Creative
       const videoData: Record<string, unknown> = {
         video_id: videoId, message: fields.primaryText, title: fields.headline,
         call_to_action: { type: fields.ctaType, value: { link: finalUrl } },
       }
       if (fields.description) videoData.description = fields.description
       const storySpec: Record<string, unknown> = { page_id: fields.pageId, video_data: videoData }
-      const creativeBody: Record<string, unknown> = {
-        name: `CREATIVE_${String(i+1).padStart(2,'0')}_${videoName.toUpperCase().slice(0,20)}`,
+      const creative = await metaPost(`/act_${accountId}/adcreatives`, token, {
+        name: `CREATIVE_${String(i+1).padStart(2,'00')}_${videoName.toUpperCase().slice(0,20)}`,
         object_story_spec: JSON.stringify(storySpec),
-      }
-      if (fields.igAccountId) creativeBody.instagram_actor_id = fields.igAccountId
-      const creative = await metaPost(`/act_${accountId}/adcreatives`, token, creativeBody)
+      })
       await log('SUCCESS', `CREATE_CREATIVE_${i+1}`, `Creative: ${creative.id}`)
 
-      const ad = await metaPost(`/act_${accountId}/ads`, token, {
+      // Crear Ad
+      const adBody: Record<string, unknown> = {
         name: adName, adset_id: adSet.id,
         creative: JSON.stringify({ creative_id: creative.id }),
         status: 'PAUSED',
-        tracking_specs: JSON.stringify([{ 'action.type': ['offsite_conversion'], 'fb.pixel': [fields.pixelId] }]),
-      })
+      }
+      if (!isWA && fields.pixelId && fields.pixelId !== '0') {
+        adBody.tracking_specs = JSON.stringify([{ 'action.type': ['offsite_conversion'], 'fb.pixel': [fields.pixelId] }])
+      }
+      const ad = await metaPost(`/act_${accountId}/ads`, token, adBody)
       await log('SUCCESS', `CREATE_AD_${i+1}`, `Ad creado: ${ad.id}`)
       results.push({ videoName, adSetName, adName, adSetId: adSet.id, adId: ad.id, finalUrl })
     }
@@ -177,8 +194,9 @@ export async function POST(req: NextRequest) {
     await log('SUCCESS', 'DONE', `🎉 ${videos.length} ad sets creados en PAUSED.`)
 
     return NextResponse.json({ success: true, launchId, campaignName, metaCampaignId: camp.id, adsCreated: videos.length, totalDailyBudget: totalBudget, results })
-  } catch (err) {
-    const msg = err instanceof MetaAPIError ? friendlyError(err.code, err.message) : (err instanceof Error ? err.message : 'Error desconocido')
+
+  } catch (err: any) {
+    const msg = err.code ? friendlyError(err.code, err.message) : (err.message || 'Error desconocido')
     await supabase.from('campaign_launches').update({ status: 'FAILED', error_message: msg }).eq('id', launchId)
     return NextResponse.json({ error: msg }, { status: 422 })
   }
