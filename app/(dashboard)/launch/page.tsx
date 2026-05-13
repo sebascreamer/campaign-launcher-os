@@ -52,7 +52,7 @@ export default function LaunchPage() {
   const [error, setError] = useState('')
   const [form, setForm] = useState({
     campaignType: 'SALES',
-    productName: '', country: 'MX', destinationUrl: '', whatsappNumber: '',
+    productName: '', country: 'MX', destinationUrl: '', whatsappNumber: '', whatsappMessage: 'Hola, me interesa obtener más información sobre este producto.',
     dailyBudget: '10', conversionEvent: 'PURCHASE',
     primaryText: '', headline: '', description: '',
     ctaType: 'SHOP_NOW', ageMin: '18', ageMax: '65', gender: 'ALL',
@@ -156,7 +156,7 @@ export default function LaunchPage() {
     data.append('fields', JSON.stringify({
       campaignType: form.campaignType,
       productName: form.productName, country: form.country,
-      destinationUrl: destUrl, dailyBudget: Number(form.dailyBudget),
+      destinationUrl: destUrl, whatsappMessage: form.whatsappMessage, dailyBudget: Number(form.dailyBudget),
       conversionEvent: isWA ? 'LEAD' : form.conversionEvent,
       primaryText: form.primaryText, headline: form.headline, description: form.description,
       ctaType: form.ctaType, ageMin: Number(form.ageMin), ageMax: Number(form.ageMax),
@@ -296,6 +296,15 @@ export default function LaunchPage() {
               <label style={lbl}>Número de WhatsApp * (con código de país)</label>
               <input value={form.whatsappNumber} onChange={e => set('whatsappNumber', e.target.value.replace(/[^0-9]/g,''))} style={inp} placeholder="593912345678 (Ecuador: 593 · México: 52 · Colombia: 57)" />
               {form.whatsappNumber && <div style={{fontSize:'10px',color:'#B8FF00',marginTop:'4px'}}>→ https://wa.me/{form.whatsappNumber}</div>}
+            </div>
+            <div style={{marginBottom:'12px'}}>
+              <label style={lbl}>Mensaje predeterminado del cliente *</label>
+              <input value={form.whatsappMessage} onChange={e => set('whatsappMessage', e.target.value.slice(0,160))} style={{...inp, border: form.whatsappMessage.length > 140 ? '1px solid #FFB400' : '1px solid #222'}}
+                placeholder="Hola, me interesa obtener más información..." maxLength={160} />
+              <div style={{display:'flex',justifyContent:'space-between',marginTop:'4px'}}>
+                <div style={{fontSize:'10px',color:'#555'}}>Texto pre-escrito que el cliente verá al abrir WhatsApp. Puede editarlo antes de enviar.</div>
+                <div style={{fontSize:'10px',color: form.whatsappMessage.length > 140 ? '#FFB400' : '#444',flexShrink:0,marginLeft:'8px'}}>{form.whatsappMessage.length}/160</div>
+              </div>
             </div>
           ) : (
             <div style={{marginBottom:'12px'}}>
