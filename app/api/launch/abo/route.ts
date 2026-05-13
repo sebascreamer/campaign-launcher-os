@@ -3,7 +3,6 @@ import { createClient } from '@/lib/supabase/server'
 import { decryptToken } from '@/lib/crypto'
 import { generateCampaignName, generateAdSetName, generateAdName } from '@/lib/naming'
 import { appendUTMs } from '@/lib/utm'
-import { validateABOForm } from '@/lib/validators'
 
 const META_BASE = 'https://graph.facebook.com/v20.0'
 
@@ -59,6 +58,7 @@ export async function POST(req: NextRequest) {
 
   if (!fields.productName) return NextResponse.json({ error: 'Falta el nombre del producto.' }, { status: 400 })
   if (videos.length === 0) return NextResponse.json({ error: 'Sube al menos un video.' }, { status: 400 })
+  if (!fields.pageId) return NextResponse.json({ error: 'Selecciona una Facebook Page.' }, { status: 400 })
 
   const { data: conn } = await supabase.from('meta_connections').select('encrypted_token')
     .eq('user_id', user.id).eq('is_active', true).maybeSingle()
@@ -71,12 +71,15 @@ export async function POST(req: NextRequest) {
   const accountId = fields.adAccountId.replace('act_', '')
   const isWA = fields.campaignType === 'WHATSAPP'
 
+  // Extract WhatsApp phone number from wa.me URL
+  const waPhone = isWA ? fields.destinationUrl.replace('https://wa.me/', '').replace(/[^0-9]/g, '') : ''
+
   const { data: launch } = await supabase.from('campaign_launches').insert({
     user_id: user.id, product_name: fields.productName, country: fields.country,
     destination_url: fields.destinationUrl, daily_budget_per_adset: fields.dailyBudget,
     conversion_event: isWA ? 'LEAD' : fields.conversionEvent,
     primary_text: fields.primaryText, headline: fields.headline,
-    description: fields.description || null, cta_type: fields.ctaType,
+    description: fields.description || null, cta_type: isWA ? 'WHATSAPP_MESSAGE' : fields.ctaType,
     age_min: fields.ageMin, age_max: fields.ageMax, gender: fields.gender,
     ad_account_id: fields.adAccountId, pixel_id: fields.pixelId || '0',
     page_id: fields.pageId, campaign_name: campaignName,
@@ -91,7 +94,6 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    // Crear campaña — objetivo diferente para WhatsApp vs Ventas
     await log('INFO', 'CREATE_CAMPAIGN', `Creando campaña: ${campaignName}`)
     const camp = await metaPost(`/act_${accountId}/campaigns`, token, {
       name: campaignName,
@@ -104,12 +106,13 @@ export async function POST(req: NextRequest) {
     await log('SUCCESS', 'CREATE_CAMPAIGN', `Campaña creada: ${camp.id}`)
 
     const results = []
+
     for (let i = 0; i < videos.length; i++) {
       const video = videos[i]
       const videoName = video.name.replace(/\.[^.]+$/, '')
       const adSetName = generateAdSetName(i, videoName)
       const adName = generateAdName(i, videoName)
-      const finalUrl = appendUTMs(fields.destinationUrl, campaignName, adName)
+      const finalUrl = isWA ? fields.destinationUrl : appendUTMs(fields.destinationUrl, campaignName, adName)
 
       // Subir video
       await log('INFO', `UPLOAD_VIDEO_${i+1}`, `Subiendo: ${video.name}`)
@@ -119,14 +122,19 @@ export async function POST(req: NextRequest) {
       })
       await fetch(init.upload_url, {
         method: 'POST',
-        headers: { Authorization: `OAuth ${token}`, 'file-size': String(video.size), 'file-offset': '0', 'Content-Type': 'application/octet-stream' },
+        headers: {
+          Authorization: `OAuth ${token}`,
+          'file-size': String(video.size),
+          'file-offset': '0',
+          'Content-Type': 'application/octet-stream',
+        },
         body: buf,
       })
       await metaPost(`/act_${accountId}/advideos`, token, { video_id: init.video_id, upload_phase: 'finish' })
       const videoId = await pollVideo(init.video_id, token)
       await log('SUCCESS', `UPLOAD_VIDEO_${i+1}`, `Video listo: ${videoId}`)
 
-      // Crear Ad Set — optimización diferente para WhatsApp
+      // Crear Ad Set
       const genders = fields.gender === 'ALL' ? [1, 2] : fields.gender === 'MALE' ? [1] : [2]
       await log('INFO', `CREATE_ADSET_${i+1}`, `Creando: ${adSetName}`)
 
@@ -138,7 +146,8 @@ export async function POST(req: NextRequest) {
         optimization_goal: isWA ? 'LINK_CLICKS' : 'OFFSITE_CONVERSIONS',
         targeting: JSON.stringify({
           geo_locations: { countries: [fields.country] },
-          age_min: fields.ageMin, age_max: fields.ageMax,
+          age_min: fields.ageMin,
+          age_max: fields.ageMax,
           ...(genders.length < 2 ? { genders } : {}),
           publisher_platforms: ['facebook', 'instagram'],
           facebook_positions: ['feed', 'story', 'reels'],
@@ -148,7 +157,6 @@ export async function POST(req: NextRequest) {
         status: 'PAUSED',
       }
 
-      // Solo agregar pixel para campañas de ventas
       if (!isWA && fields.pixelId && fields.pixelId !== '0') {
         adSetBody.promoted_object = JSON.stringify({
           pixel_id: fields.pixelId,
@@ -160,27 +168,40 @@ export async function POST(req: NextRequest) {
       const adSet = await metaPost(`/act_${accountId}/adsets`, token, adSetBody)
       await log('SUCCESS', `CREATE_ADSET_${i+1}`, `Ad set: ${adSet.id}`)
 
-      // Crear Creative
+      // Crear Creative con CTA correcto para WhatsApp vs Ventas
+      const ctaValue = isWA
+        ? { link: finalUrl, whatsapp_phone_number: waPhone }
+        : { link: finalUrl }
+
       const videoData: Record<string, unknown> = {
-        video_id: videoId, message: fields.primaryText, title: fields.headline,
-        call_to_action: { type: fields.ctaType, value: { link: finalUrl } },
+        video_id: videoId,
+        message: fields.primaryText,
+        title: fields.headline,
+        call_to_action: {
+          type: isWA ? 'WHATSAPP_MESSAGE' : fields.ctaType,
+          value: ctaValue,
+        },
       }
       if (fields.description) videoData.description = fields.description
-      const storySpec: Record<string, unknown> = { page_id: fields.pageId, video_data: videoData }
+
       const creative = await metaPost(`/act_${accountId}/adcreatives`, token, {
-        name: `CREATIVE_${String(i+1).padStart(2,'00')}_${videoName.toUpperCase().slice(0,20)}`,
-        object_story_spec: JSON.stringify(storySpec),
+        name: `CREATIVE_${String(i+1).padStart(2,'0')}_${videoName.toUpperCase().slice(0,20)}`,
+        object_story_spec: JSON.stringify({ page_id: fields.pageId, video_data: videoData }),
       })
       await log('SUCCESS', `CREATE_CREATIVE_${i+1}`, `Creative: ${creative.id}`)
 
       // Crear Ad
       const adBody: Record<string, unknown> = {
-        name: adName, adset_id: adSet.id,
+        name: adName,
+        adset_id: adSet.id,
         creative: JSON.stringify({ creative_id: creative.id }),
         status: 'PAUSED',
       }
       if (!isWA && fields.pixelId && fields.pixelId !== '0') {
-        adBody.tracking_specs = JSON.stringify([{ 'action.type': ['offsite_conversion'], 'fb.pixel': [fields.pixelId] }])
+        adBody.tracking_specs = JSON.stringify([{
+          'action.type': ['offsite_conversion'],
+          'fb.pixel': [fields.pixelId],
+        }])
       }
       const ad = await metaPost(`/act_${accountId}/ads`, token, adBody)
       await log('SUCCESS', `CREATE_AD_${i+1}`, `Ad creado: ${ad.id}`)
@@ -193,7 +214,11 @@ export async function POST(req: NextRequest) {
     }).eq('id', launchId)
     await log('SUCCESS', 'DONE', `🎉 ${videos.length} ad sets creados en PAUSED.`)
 
-    return NextResponse.json({ success: true, launchId, campaignName, metaCampaignId: camp.id, adsCreated: videos.length, totalDailyBudget: totalBudget, results })
+    return NextResponse.json({
+      success: true, launchId, campaignName,
+      metaCampaignId: camp.id, adsCreated: videos.length,
+      totalDailyBudget: totalBudget, results,
+    })
 
   } catch (err: any) {
     const msg = err.code ? friendlyError(err.code, err.message) : (err.message || 'Error desconocido')
