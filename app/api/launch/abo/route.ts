@@ -185,16 +185,14 @@ export async function POST(req: NextRequest) {
         await log('SUCCESS', `CREATE_ADSET_${i+1}`, `Ad set ${i+1}: ${adSet.id}`)
 
         // Crear Creative
-        const ctaValue = isWA
-          ? { link: waUrl, whatsapp_phone_number: waPhone }
-          : { link: finalUrl }
+        const ctaValue = { link: isWA ? waUrl : finalUrl }
 
         const videoData = {
           video_id: videoId,
           message: fields.primaryText,
           title: fields.headline,
           call_to_action: {
-            type: isWA ? 'WHATSAPP_MESSAGE' : fields.ctaType,
+            type: isWA ? 'LEARN_MORE' : fields.ctaType,
             value: ctaValue,
           },
           ...(fields.description ? { description: fields.description } : {}),
