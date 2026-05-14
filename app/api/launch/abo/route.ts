@@ -123,7 +123,7 @@ export async function POST(req: NextRequest) {
     await log('INFO', 'CREATE_CAMPAIGN', `Creando campaña: ${campaignName}`)
     const camp = await metaPost(`/act_${accountId}/campaigns`, token, {
       name: campaignName,
-      objective: isWA ? 'OUTCOME_TRAFFIC' : 'OUTCOME_SALES',
+      objective: 'OUTCOME_SALES',
       buying_type: 'AUCTION',
       status: 'PAUSED',
       special_ad_categories: JSON.stringify([]),
