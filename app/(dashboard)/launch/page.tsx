@@ -74,7 +74,7 @@ export default function LaunchPage() {
     const selAcc = (accs||[]).find((a:any) => a.is_selected) || (accs||[])[0]
     const selPx = (pxls||[]).find((p:any) => p.is_selected) || (pxls||[])[0]
     const selPg = (pgs||[]).find((p:any) => p.is_selected) || (pgs||[])[0]
-    if (selAcc) { setForm(f => ({ ...f, adAccountId: selAcc.account_id })); setAccountSaved(true) }
+    if (selAcc) { setForm(f => ({ ...f, adAccountId: (selAcc.account_id || '').replace(/[^0-9]/g, '') })); setAccountSaved(true) }
     if (selPx) setForm(f => ({ ...f, pixelId: selPx.pixel_id }))
     if (selPg) setForm(f => ({ ...f, pageId: selPg.page_id }))
   }
@@ -252,7 +252,7 @@ export default function LaunchPage() {
               <label style={lbl}>Ad Account ID *</label>
               <div style={{display:'flex',gap:'6px'}}>
                 <input value={form.adAccountId}
-                  onChange={e => set('adAccountId', e.target.value.replace('act_','').trim())}
+                  onChange={e => set('adAccountId', e.target.value.replace(/[^0-9]/g, ''))}
                   onBlur={saveAdAccount}
                   style={{...inp,flex:1,border:accountSaved?'1px solid rgba(184,255,0,0.4)':'1px solid #222'}}
                   placeholder="1690723562370291" />
