@@ -138,8 +138,8 @@ export async function POST(req: NextRequest) {
     
     // Try multiple objectives - some accounts only support old-style objectives
     const objectivesToTry = isWA 
-      ? ['OUTCOME_TRAFFIC', 'LINK_CLICKS', 'OUTCOME_AWARENESS']
-      : ['OUTCOME_SALES', 'CONVERSIONS', 'LINK_CLICKS']
+      ? ['OUTCOME_ENGAGEMENT', 'MESSAGES', 'OUTCOME_TRAFFIC', 'TRAFFIC']
+      : ['OUTCOME_SALES', 'CONVERSIONS', 'OUTCOME_TRAFFIC', 'TRAFFIC']
     
     let camp: any = null
     let usedObjective = ''
@@ -149,16 +149,15 @@ export async function POST(req: NextRequest) {
           name: campaignName,
           objective,
           status: 'PAUSED',
-          special_ad_categories: '[]',
         })
         usedObjective = objective
         break
       } catch (e: any) {
-        if (e.code !== 100) throw e // Only retry on "Invalid parameter"
+        if (e.code !== 100 && e.code !== 2635 && e.code !== 278) throw e
         await log('INFO', 'CREATE_CAMPAIGN', `Objetivo ${objective} no disponible, probando siguiente...`)
       }
     }
-    if (!camp) throw { message: 'Ningún objetivo disponible para esta cuenta', code: 100 }
+    if (!camp) throw { message: 'No se pudo crear la campaña. Verifica que tu Ad Account esté activa y tenga permisos de API.', code: 100 }
     await supabase.from('campaign_launches').update({ meta_campaign_id: camp.id }).eq('id', launchId)
     await log('SUCCESS', 'CREATE_CAMPAIGN', `Campaña creada: ${camp.id}`)
 
