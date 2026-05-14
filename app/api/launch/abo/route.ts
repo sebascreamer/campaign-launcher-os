@@ -4,6 +4,8 @@ import { decryptToken } from '@/lib/crypto'
 import { generateCampaignName, generateAdSetName, generateAdName } from '@/lib/naming'
 import { appendUTMs } from '@/lib/utm'
 
+export const maxDuration = 300 // Vercel Pro: 5 minutos
+
 const META_BASE = 'https://graph.facebook.com/v20.0'
 
 async function metaPost(path: string, token: string, body: {[key: string]: unknown}) {
