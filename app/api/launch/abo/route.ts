@@ -107,7 +107,7 @@ export async function POST(req: NextRequest) {
   const launchDate = new Date()
   const campaignName = generateCampaignName(fields.productName, fields.country, launchDate)
   const totalBudget = fields.dailyBudget * videos.length
-  const accountId = fields.adAccountId.replace('act_', '')
+  const accountId = (fields.adAccountId || '').replace(/[^0-9]/g, '') // Extract only digits
   const isWA = fields.campaignType === 'WHATSAPP'
   const waPhone = isWA ? fields.destinationUrl.replace('https://wa.me/', '').replace(/[^0-9]/g, '') : ''
   const waMessage = isWA && fields.whatsappMessage ? encodeURIComponent(fields.whatsappMessage) : ''
