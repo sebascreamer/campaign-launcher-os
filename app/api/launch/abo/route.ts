@@ -14,7 +14,13 @@ async function metaPost(path: string, token: string, body: {[key: string]: unkno
   Object.entries(body).forEach(([k, v]) => form.set(k, typeof v === 'object' ? JSON.stringify(v) : String(v)))
   const res = await fetch(`${META_BASE}${path}`, { method: 'POST', body: form, headers: { 'Content-Type': 'application/x-www-form-urlencoded' } })
   const data = await res.json()
-  if (data.error) throw { message: data.error.message, code: data.error.code }
+  if (data.error) throw { 
+    message: data.error.message, 
+    code: data.error.code,
+    error_user_msg: data.error.error_user_msg || '',
+    error_user_title: data.error.error_user_title || '',
+    fbtrace_id: data.error.fbtrace_id || ''
+  }
   return data
 }
 
@@ -72,6 +78,14 @@ function friendlyError(code: number, msg: string): string {
   return map[code] || `Error Meta (${code}): ${msg}`
 }
 
+function getFullError(err: any): string {
+  const parts = [`Error Meta (${err.code}): ${err.message}`]
+  if (err.error_user_title) parts.push(`Título: ${err.error_user_title}`)
+  if (err.error_user_msg) parts.push(`Detalle: ${err.error_user_msg}`)
+  if (err.fbtrace_id) parts.push(`Trace ID: ${err.fbtrace_id}`)
+  return parts.join(' | ')
+}
+
 export async function POST(req: NextRequest) {
   const supabase = await createClient()
   const { data: { user }, error: authError } = await supabase.auth.getUser()
@@ -121,13 +135,30 @@ export async function POST(req: NextRequest) {
   try {
     // PASO 1: Crear campaña
     await log('INFO', 'CREATE_CAMPAIGN', `Creando campaña: ${campaignName}`)
-    const camp = await metaPost(`/act_${accountId}/campaigns`, token, {
-      name: campaignName,
-      objective: 'OUTCOME_SALES',
-      buying_type: 'AUCTION',
-      status: 'PAUSED',
-      special_ad_categories: JSON.stringify([]),
-    })
+    
+    // Try multiple objectives - some accounts only support old-style objectives
+    const objectivesToTry = isWA 
+      ? ['OUTCOME_TRAFFIC', 'LINK_CLICKS', 'OUTCOME_AWARENESS']
+      : ['OUTCOME_SALES', 'CONVERSIONS', 'LINK_CLICKS']
+    
+    let camp: any = null
+    let usedObjective = ''
+    for (const objective of objectivesToTry) {
+      try {
+        camp = await metaPost(`/act_${accountId}/campaigns`, token, {
+          name: campaignName,
+          objective,
+          status: 'PAUSED',
+          special_ad_categories: '[]',
+        })
+        usedObjective = objective
+        break
+      } catch (e: any) {
+        if (e.code !== 100) throw e // Only retry on "Invalid parameter"
+        await log('INFO', 'CREATE_CAMPAIGN', `Objetivo ${objective} no disponible, probando siguiente...`)
+      }
+    }
+    if (!camp) throw { message: 'Ningún objetivo disponible para esta cuenta', code: 100 }
     await supabase.from('campaign_launches').update({ meta_campaign_id: camp.id }).eq('id', launchId)
     await log('SUCCESS', 'CREATE_CAMPAIGN', `Campaña creada: ${camp.id}`)
 
@@ -160,7 +191,7 @@ export async function POST(req: NextRequest) {
           campaign_id: camp.id,
           daily_budget: Math.round(fields.dailyBudget * 100),
           billing_event: 'IMPRESSIONS',
-          optimization_goal: isWA ? 'LINK_CLICKS' : 'OFFSITE_CONVERSIONS',
+          optimization_goal: isWA ? 'LINK_CLICKS' : (usedObjective === 'CONVERSIONS' || usedObjective === 'OUTCOME_SALES') ? 'OFFSITE_CONVERSIONS' : 'LINK_CLICKS',
           targeting: JSON.stringify({
             geo_locations: { countries: [fields.country] },
             age_min: fields.ageMin, age_max: fields.ageMax,
@@ -238,7 +269,7 @@ export async function POST(req: NextRequest) {
 
   } catch (err) {
     const e = err as {code?: number; message?: string}
-    const msg = e.code ? friendlyError(e.code, e.message || '') : (e.message || 'Error desconocido')
+    const msg = e.code ? getFullError(e) : (e.message || 'Error desconocido')
     await supabase.from('campaign_launches').update({ status: 'FAILED', error_message: msg }).eq('id', launchId)
     return NextResponse.json({ error: msg }, { status: 422 })
   }
